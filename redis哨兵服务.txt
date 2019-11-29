@@ -1,0 +1,297 @@
+> info replication    //查看本机信息
+> INFO clients        //查看当前连接数
+> CONFIG GET maxclients   //最大连接数
+临时生效
+                slaveof  主服务器ip  端口号
+ 
+         slaveof  no one  //直接在从服务器上执行该命令即可
+
+
+从服务器 只读only
+
+永久配置为从服务器
+      vim +282 /etc/redis/6379.conf   配置文件
+
+sed -i '282s/.*/slaveof 192.168.4.51 6351/' /etc/redis/6379.conf
+
+从服务器有原始数据时  首次同步会被主服务器的数据覆盖
+
+           首次完全同步  之后增量同步
+
+-----------------------------------------------------------------------------------------
+
+               设置连接密码   主 设置密码  /从 获取验证密码
+
+  主  +501   /etc/redis/6379.conf
+
+requirepass 123456
+ 
+  从  +289  /etc/redis/6379.conf
+# masterauth <master-password>
+       masterauth 123456
+
+sed -i '289s/.*/masterauth 123456/' /etc/redis/6379.conf  
+                                 #从
+sed -i '501s/.*/requirepass 123456/' /etc/redis/6379.conf
+                                  #主
+
+
+
+----------------------------------------------------------------
+
+               不关服务器 加入51主服务器中
+
+53> slaveof 192.168.4.51 6351
+53 > config get masterauth
+53  > config set masterauth 123456
+53   > config rewrite   //保存配置到配置文件中  文件末尾
+                                                   所有配置命令  一同保存
+
+echo "slaveof 192.168.4.51 6351" >> /etc/redis/6379.conf
+echo ""
+
+简直了  这软件 666
+
+slaveof 也是命令 与config set 冲突 不可用
+
+-----------------------------------------------------
+ 
+                redis哨兵程序 可以检测 redis主从
+                                            高可用  主机宕机后 从机替上
+
+
+装包  make && make install 不用启用sh脚本
+sentinel.conf  源码包中 有模板
+
+>>>>   /etc/sentinel.conf
+
+   bind 服务器使用的ip
+   port 默认26379
+   sentinel monitor   server51     192.168.4.51   6351  1  
+        //告诉主机 监视谁
+                                              1   :  有几台哨兵服务器发现主机宕机
+   sentinel auth-pass  server51 123456  
+            //连接密码                   如果没密码 忽略
+        
+
+----------------------------------------
+echo "bind 0.0.0.0
+port 26379
+sentinel monitor server51 192.168.4.51 6351 1
+sentinel auth-pass server51 123456" >> /etc/sentinel.conf
+
+]# redis-sentinel /etc/sentinel.conf    //启用监控
+                      //监控程序会一直存在 可以 后台运行
+
+
+
+---------------------------------------------------
+redis 服务 存盘
+
+    save 900 1             219    /15m
+    save 300 10            220    /5m
+    save 60 10000          221    /1m
+
+
+      dbfilename           254   dump.rdb/文件名
+   
+           手动保存
+                        save   存储 中途不可写入
+                      bgsave   后台存储 可写入
+
+-----------------------------------------------------------
+备份  cp 就行
+恢复  复制到    /数据库目录下
+         /var/lib/redis/6379/dump.rdb
+
+
+
+                    AOF + RDB
+rdb 保存数据有间隙  
+
+                       append only file
+> config set appendonly yes   默认没有开启
+> config rewrite              开启后
+> config get appendfilename //定义的aof文件名
+             
+             aof创建后 存入所有创建命令的数据
+
+恢复数据 就用这个文件就够了
+配置文件 开启aof 服务
+关闭 redis服务 删除所有 /var/lib/redis/6379/* 文件
+复制 aof 文件到/var/lib/redis/6379/文件夹下
+ 重启 redis服务
+
+-------------------------------------------------
+
+# appendfsync always      //每条命令
+appendfsync everysec      //每秒       默认
+# appendfsync no      //只记录命令 不存入rdb文件中
+                                          只记录在aof文件中
+
+-------------------------------------------------
+
+
+        日志文件类似文件合并  减小占用空间     ...AOF
+
+
+auto-aof-rewrite-min-size 64mb     //首次触发重写
+auto-aof-rewrite-percentage 100    //再次增长百分比 
+                                    默认开启
+
+-----------------------------------------------------------
+
+                         恢复 aof 文件
+
+redis-check-aof
+
+]# redis-check-aof --fix appendonly.aof
+                      //恢复文件
+
+[root@mysql450 6379]# /etc/init.d/redis_6379 start
+/var/run/redis_6379.pid exists, process is already running or crashed
+         //脚本提示 pid号 已经存在  但服务并未启动
+           //删除 /var/run/redis_6379.pid 文件 重启 启动脚本
+
+---------------------------------------------------------------------------------
+
+                    生产环境  中 rdb 和 aof 都是开启的
+
+
+-----------------------------------------------------------------------------------------
+
+
+ set key value [EX seconds] [PX milliseconds] [NX|XX]
+               +EX   秒       /  +PX   毫秒  /  不存在时赋值| 修改已有变量 
+> set A 123qqq...A     #永不过期 直接输入此命令时 默认永不过期
+> set A 123qqq...A EX 15  //15秒过期
+> set A 123qqq...A PX 15   //15毫秒过期
+> set name bob NX  //name bob存在时不赋值入 name
+> set name tom XX   // 修改name 的值
+
+      改变存贮的值
+set tel 15700658755
+get tel
+  "15700658755"
+setrange  tel 3 ****   //修改值中 第三位之后的数
+ "157****8755"
+
+append name ac   //存在追加 不存在 创建
+
+setbit bit 0 1    setbit 变量名  第几位 值(0|1)
+setbit bit 1 0    //位存储   格式 只能这样 一一对应 存
+      节省空间
+ 存储登录数据
+1 0     /0 代表未登录  1代表登录
+2 1     /存入数据中 只占1位
+3 1     /8位 = 1 byt   1024 byt = 1 K
+....
+30 0   
+
+
+> setbit bit 1 1
+(integer) 0
+> setbit bit 2 0
+(integer) 0
+> setbit bit 3 1
+(integer) 0
+> setbit bit 4 1
+(integer) 0
+> setbit bit 5 0
+(integer) 0
+> BITCOUNT bit
+(integer) 3       //1的和?
+
+------------------------------------------------------
+
+    number中存有数(  变量 )
+decr   number        //自减1
+decrby number  20    //自减可定义值
+                                     //整数自减
+
+incr    number       //自加1
+incrby  number  20   //自加
+
+-------------------------------------------------------
+
+getrange number 0  1     //第1位到第2位
+                            起   终
+
+getrange number 2  6     //第3位到第7位
+
+getrange number -2  -1    //-2 倒数第2个   -1 最后一个  
+
+------------------------------------------------------------
+
+    list一个变量 存 多个值    先进后出
+
+lpush 变量名 值 值 值 值
+
+lpush list a b c d
+
+变量中 有值时  追加  追加在最前面
+追加输入   A B C
+     输出    C B A
+
+> lpush name yaya dc cd ca cb cctv ddtv
+
+  >   lrange name 0 -1
+1) "ddtv"
+2) "cctv"
+3) "cb"
+4) "ca"
+5) "cd"
+6) "dc"
+7) "yaya"
+
+-------------------------------------------------
+        读取 list 变量的值
+lrange 变量  位置 位置
+lrange list  0   1
+                       0    -1       //第一个到最后一个
+
+--------------------------------------------------
+
+llen 变量    //查看变量长度
+
+lpop 变量    //删除变量中第一个元素  //也可看成生成时的最后一个值
+
+lindex 变量  位置   //输出 变量中的第几位的值
+
+lset  变量  位置  值   //修改 变量中 指定位置的值 
+
+rpush 变量 值    //插入队尾  //生成时 最前面
+
+
+---------------------------------------------------------------
+
+
+                   hash 表
+
+      变量 (表)   name  X   XX  XXX
+             age  X   XX  XXX
+             sex  X/y X/y  X/y 
+
+hset site google 'www.g.cn'
+hset 变量名  列名            值
+
+hget 变量名 列名     //输出 hset存的列的值 
+hgetall 变量名     //拿出变量所有列和值
+hvals 变量名         //拿出所有变量的列名
+hkeys 变量名         // 拿出变量的所有列名
+
+hmget 变量名  列名 列名  //输出 变量中多个列的值
+hmset 变量名  列名 值 列名 值  //同时输入多个 列的值
+
+hdel 变量名  列名  //删除 变量中某列
+
+
+
+
+
+
+
+
+
+
+

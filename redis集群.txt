@@ -1,0 +1,162 @@
+          开启redis 集群服务
+
+        create                 创建集群
+        check                  检查集群
+        reshard                重新分片
+        del-node               删除主机
+        add-node  --slave      添加slave主机
+        add-node               添加master主机
+
+
+管理redis集群 
+]# yum -y install rubygems
+]# tar -xf redis-4.0.8.tar.gz
+]# echo $PATH
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+]# cp /root/redis-4.0.8/src/redis-trib.rb /root/bin/
+]# chmod +x /root/bin/redis-trib.rb
+]# redis-trib.rb help
+方便使用
+]# gem install redis-3.2.1.gem    //解压redis软件 
+
+
+yum -y install gcc
+]# tar -xf redis-4.0.8.tar.gz
+]# cd redis-4.0.8/
+]# make && make install
+]# ./utils/install_server.sh
+]# vim /etc/redis/6379.conf    该端口  ip地址
+]# sed -i
+]# /etc/init.d/redis_6379 stop    关不了 登录时 shutdown/killall -9 redis 
+]# /etc/init.d/redis_6379 start
+
+]# redis-trib.rb create --replicas 1 192.168.4.51:6351 192.168.4.52:6352 192.168.4.53:6353 192.168.4.54:6354 192.168.4.55:6355 192.168.4.56:6356
+     //定义集群
+
+集群至少6台机器 3主3从 且所有服务起都要开启 redis的集群服务
+           815    823   829
+sed -i '829s/#//' /etc/redis/6379.conf
+sed -i '823s/#//' /etc/redis/6379.conf
+sed -i '815s/#//' /etc/redis/6379.conf
+sed -i '829s/15000/5000/' /etc/redis/6356.conf
+redis-cli -h 192.168.4.51 -p 6351 shutdown
+/etc/init.d/redis_6379 start
+redis-cli -h 192.168.4.51 -p 6351
+>cluster info
+
+
+sed -i '829s/^/#/' /etc/redis/6379.conf
+sed -i '823s/^/#/' /etc/redis/6379.conf
+sed -i '815s/^/#/' /etc/redis/6379.conf
+rm -rf /var/lib/redis/6379/*
+/etc/init.d/redis_6379 start
+cluster reset
+
+
+for i in {1..12}
+do
+
+done
+
+info 信息
+
+访问集群 同步数据          随机数据同步到数据库 同时存入数据后 跳转到数据存储位置
+  
+192.168.4.51:6351> set 1A 1101
+-> Redirected to slot [11841] located at 192.168.4.53:6353
+OK
+192.168.4.53:6353> keys *
+1) "y"
+2) "x"
+3) "1A"
+                                             分步式
+如何优秀的调出数据?      
+                                  和存储数据相同  机器调用集群位置 
+                                    把自身位置自动转换到 变量所在库 
+
+如何查一次看所有数据/变量名 ?
+
+
+                     管理集群   高可用
+
+停主服务器 一个  
+                    其从服务器会自动成为主服务器
+                         主服务器重启后 会自动配置为当前主服务器的从服务器
+                                         谁的主服务器的从服务器少就成为谁的从服务器
+                                      相同---随机
+
+             主服务器 会有一个  hash 槽  指定的是变量存储的位置 
+
+
+
+查看集群状态
+]# redis-trib.rb info 192.168.4.52:6352
+]# redis-trib.rb check 192.168.4.52:6352
+
+
+          集群添加新主机
+     添加 master
+           运行redis 完成配置
+]# redis-trib.rb add-node 192.168.4.58:6358  192.168.4.51:6351
+                                                 //新机                           //集群任意主机
+
+手动分配槽
+            
+]# redis-trib.rb reshard 192.168.4.51:6351   //重新划分槽
+
+How many slots do you want to move (from 1 to 16384)? 4096  
+                                                       //从中调 出多少           
+Source node #1:all    //从那些 主机调
+Do you want to proceed with the proposed reshard plan (yes/no)? yes
+
+  
+
+  添加 slave
+
+~]# redis-trib.rb add-node --slave --master-id 420de1d6629ff1713c957c7b9183c2f44b7b84ac 192.168.4.59:6359  192.168.4.51:6351
+
+//如果 要添加为slave 可打错成了 主服务器 可以停 要添加的服务器 删除 
+]# rm -rf /var/lib/redis/6379/nodes-6379.conf  node文件
+          重启redis服务
+
+
+
+
+删除master服务器
+有hash槽 要先释放hash slots
+]# redis-trib.rb reshard  192.168.4.51:6351     分片/移除
+How many slots do you want to move (from 1 to 16384)? 4096  //要移除的个数
+What is the receiving node ID? aa4940b52a3251ef09b84ebfde285b10e08a823b
+                                                       //移除的hash槽 给谁
+Source node #1:420de1d6629ff1713c957c7b9183c2f44b7b84ac  //从哪移除hash
+Source node #2:done   //没了
+
+redis-trib.rb del-node 192.168.4.51:6351 8f4eb719f19ea8cca717bc41f7d65c471d6c0058
+                 集群ip + id号
+
+删除slave服务器    //删除后 服务器也就停了
+
+]# redis-trib.rb del-node 192.168.4.51:6351 8f4eb719f19ea8cca717bc41f7d65c471d6c0058
+        集群ip + id号
+
+
+                            如何平均分配  hash槽
+]# redis-trib.rb rebalance  192.168.4.51:6351  //集群
+ 
+                              把移除主机  添回去   
+                                                           //注意此时移除主机拥有node文件
+                         //add 只能添加空白redis
+
+
+
+登录 redis
+redis-cli -h 192.168.4.58 -p 6358
+       > cluster reset  //刷新系统  重置系统
+                     刷新后所有内容归零
+
+就可以在 管理服务器上 从新添加该redis服务器
+
+
+
+
+
